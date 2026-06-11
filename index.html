@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Generative Muster</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0a0a0f; overflow: hidden; cursor: crosshair; }
+    canvas { display: block; }
+    #ui {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    button {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #fff;
+      padding: 8px 18px;
+      border-radius: 20px;
+      cursor: pointer;
+      font-size: 13px;
+      letter-spacing: 0.05em;
+      transition: background 0.2s;
+    }
+    button:hover { background: rgba(255,255,255,0.18); }
+    #mode-label {
+      color: rgba(255,255,255,0.4);
+      font-size: 12px;
+      font-family: monospace;
+      min-width: 120px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="ui">
+  <button onclick="clearCanvas()">Löschen</button>
+  <span id="mode-label">Modus: Spiralen</span>
+  <button onclick="nextMode()">Modus wechseln</button>
+  <button onclick="toggleFreeze()">⏸ Pause</button>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const modeLabel = document.getElementById('mode-label');
+
+let W, H;
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// State
+let mouse = { x: W/2, y: H/2, vx: 0, vy: 0 };
+let frozen = false;
+let tick = 0;
+let hue = 0;
+
+const MODES = ['Spiralen', 'Wellen', 'Fraktale Äste', 'Kaleidoskop'];
+let modeIdx = 0;
+
+function nextMode() {
+  modeIdx = (modeIdx + 1) % MODES.length;
+  modeLabel.textContent = 'Modus: ' + MODES[modeIdx];
+}
+
+function clearCanvas() {
+  ctx.clearRect(0, 0, W, H);
+}
+
+function toggleFreeze() {
+  frozen = !frozen;
+  document.querySelector('button:last-child').textContent = frozen ? '▶ Weiter' : '⏸ Pause';
+}
+
+window.addEventListener('mousemove', e => {
+  mouse.vx = e.clientX - mouse.x;
+  mouse.vy = e.clientY - mouse.y;
+  mouse.x = e.clientX;
+  mouse.y = e.clientY;
+});
+
+window.addEventListener('touchmove', e => {
+  e.preventDefault();
+  const t = e.touches[0];
+  mouse.vx = t.clientX - mouse.x;
+  mouse.vy = t.clientY - mouse.y;
+  mouse.x = t.clientX;
+  mouse.y = t.clientY;
+}, { passive: false });
+
+// --- Drawing modes ---
+
+function drawSpirals() {
+  const speed = Math.sqrt(mouse.vx**2 + mouse.vy**2);
+  const arms = 6;
+  for (let i = 0; i < arms; i++) {
+    const angle = (i / arms) * Math.PI * 2 + tick * 0.012;
+    const r = (tick % 180) * 1.4;
+    const x = mouse.x + Math.cos(angle) * r;
+    const y = mouse.y + Math.sin(angle) * r;
+    const size = Math.max(1, 4 - r * 0.015);
+    ctx.beginPath();
+    ctx.arc(x, y, size, 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${hue + i * 40}, 90%, 65%, ${0.7 - r/400})`;
+    ctx.fill();
+  }
+}
+
+function drawWaves() {
+  const amp = 60 + Math.abs(mouse.vx) * 3;
+  const freq = 0.015 + Math.abs(mouse.vy) * 0.0003;
+  ctx.beginPath();
+  for (let x = 0; x <= W; x += 3) {
+    const y = mouse.y + Math.sin(x * freq + tick * 0.05) * amp
+                      + Math.cos(x * freq * 0.5 + tick * 0.03) * amp * 0.4;
+    x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = `hsla(${hue}, 85%, 65%, 0.15)`;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+}
+
+function branch(x, y, angle, depth, len) {
+  if (depth === 0) return;
+  const x2 = x + Math.cos(angle) * len;
+  const y2 = y + Math.sin(angle) * len;
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x2, y2);
+  ctx.strokeStyle = `hsla(${hue + depth * 15}, 80%, 60%, ${depth / 7})`;
+  ctx.lineWidth = depth * 0.6;
+  ctx.stroke();
+  const spread = 0.4 + Math.abs(mouse.vx) * 0.008;
+  branch(x2, y2, angle - spread, depth - 1, len * 0.68);
+  branch(x2, y2, angle + spread, depth - 1, len * 0.68);
+}
+
+function drawFractal() {
+  if (tick % 3 !== 0) return; // throttle
+  const angle = Math.atan2(mouse.vy, mouse.vx) - Math.PI / 2;
+  branch(mouse.x, mouse.y, angle, 7, 55);
+}
+
+function drawKaleidoscope() {
+  const segments = 8;
+  const speed = Math.sqrt(mouse.vx**2 + mouse.vy**2) + 1;
+  for (let s = 0; s < segments; s++) {
+    ctx.save();
+    ctx.translate(W/2, H/2);
+    ctx.rotate((s / segments) * Math.PI * 2);
+    if (s % 2 === 0) ctx.scale(1, -1);
+
+    const ox = mouse.x - W/2;
+    const oy = mouse.y - H/2;
+    const r = Math.sqrt(ox**2 + oy**2);
+    const a = Math.atan2(oy, ox) + tick * 0.008;
+
+    ctx.beginPath();
+    ctx.arc(Math.cos(a)*r, Math.sin(a)*r, Math.max(1, speed * 0.5), 0, Math.PI*2);
+    ctx.fillStyle = `hsla(${hue + s * 20}, 90%, 65%, 0.6)`;
+    ctx.fill();
+
+    // trailing line
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(Math.cos(a)*r, Math.sin(a)*r);
+    ctx.strokeStyle = `hsla(${hue + s * 20}, 70%, 55%, 0.08)`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// --- Main loop ---
+
+function loop() {
+  requestAnimationFrame(loop);
+  if (frozen) return;
+
+  tick++;
+  hue = (hue + 0.4) % 360;
+
+  // Subtle fade trail
+  ctx.fillStyle = 'rgba(10, 10, 15, 0.18)';
+  ctx.fillRect(0, 0, W, H);
+
+  switch (modeIdx) {
+    case 0: drawSpirals(); break;
+    case 1: drawWaves(); break;
+    case 2: drawFractal(); break;
+    case 3: drawKaleidoscope(); break;
+  }
+
+  // Dampen velocity
+  mouse.vx *= 0.85;
+  mouse.vy *= 0.85;
+}
+
+loop();
+</script>
+</body>
+</html>
